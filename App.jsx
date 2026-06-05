@@ -5,9 +5,10 @@ import {
 } from 'lucide-react';
 import { C, SHARE_OPTIONS, QUOTA_OPTS } from './constants.js';
 import { uid, todayISO, shareValOf, fmtShares } from './helpers.js';
-import { loadRoster, saveRoster, loadTrip, saveTrip } from './storage.js';
+import { loadRoster, saveRoster, loadForeignRoster, saveForeignRoster, loadTrip, saveTrip } from './storage.js';
 import { Section, IconBtn, MoneyInput, PercentInput, Label, selectStyle, inputStyle } from './ui.jsx';
 import BondSection from './BondSection.jsx';
+import { ForeignCrewRow, AddForeignMenu } from './ForeignCrewSection.jsx';
 import Preview from './Preview.jsx';
 
 // ── Crew row ───────────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [view, setView] = useState('edit');
   const [roster, setRosterState] = useState([]);
+  const [foreignRoster, setForeignRosterState] = useState([]);
 
   const [vessel, setVessel] = useState('Audacious BF83');
   const [tripDate, setTripDate] = useState(todayISO());
@@ -107,12 +109,14 @@ export default function App() {
   const [fuel, setFuel] = useState([]);
   const [labour, setLabour] = useState([]);
   const [logistics, setLogistics] = useState('');
-  const [foreignBonus, setForeignBonus] = useState('');
+  const [foreignCrew, setForeignCrew] = useState([]);
+  const [showAddForeign, setShowAddForeign] = useState(false);
   const [bondItems, setBondItems] = useState([]);
 
   // Load on mount
   useEffect(() => {
     setRosterState(loadRoster());
+    setForeignRosterState(loadForeignRoster());
     const t = loadTrip();
     if (t) {
       if (t.vessel !== undefined) setVessel(t.vessel);
@@ -122,7 +126,7 @@ export default function App() {
       if (Array.isArray(t.fuel)) setFuel(t.fuel);
       if (Array.isArray(t.labour)) setLabour(t.labour);
       if (t.logistics !== undefined) setLogistics(t.logistics);
-      if (t.foreignBonus !== undefined) setForeignBonus(t.foreignBonus);
+      if (Array.isArray(t.foreignCrew)) setForeignCrew(t.foreignCrew);
       if (Array.isArray(t.bondItems)) setBondItems(t.bondItems);
     }
     setLoaded(true);
@@ -132,14 +136,18 @@ export default function App() {
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      saveTrip({ vessel, tripDate, crew, quota, fuel, labour, logistics, foreignBonus, bondItems });
+      saveTrip({ vessel, tripDate, crew, quota, fuel, labour, logistics, foreignCrew, bondItems });
     }, 400);
     return () => clearTimeout(t);
-  }, [vessel, tripDate, crew, quota, fuel, labour, logistics, foreignBonus, bondItems, loaded]);
+  }, [vessel, tripDate, crew, quota, fuel, labour, logistics, foreignCrew, bondItems, loaded]);
 
   const persistRoster = (next) => {
     setRosterState(next);
     saveRoster(next);
+  };
+  const persistForeignRoster = (next) => {
+    setForeignRosterState(next);
+    saveForeignRoster(next);
   };
 
   const totalShares = useMemo(() => crew.reduce((s, c) => s + shareValOf(c), 0), [crew]);
@@ -167,7 +175,6 @@ export default function App() {
 
   const removeCrew = (id) => {
     setCrew((prev) => prev.filter((c) => c.id !== id));
-    // Clear bond assignments for this crewman
     setBondItems((prev) => prev.map((b) => (b.assignedTo === id ? { ...b, assignedTo: null } : b)));
   };
 
@@ -198,11 +205,53 @@ export default function App() {
     setCrew((prev) => prev.map((c) => (c.rosterId === rosterId ? { ...c, rosterId: null } : c)));
   };
 
+  // ── Foreign crew ops ─────────────────────────────────────────────────
+  const addForeignFromRoster = (m) => {
+    setForeignCrew((prev) => [...prev, {
+      id: uid(), rosterId: m.id, name: m.name, bonus: m.defaultBonus || '',
+    }]);
+    setShowAddForeign(false);
+  };
+
+  const addNewForeign = () => {
+    setForeignCrew((prev) => [...prev, { id: uid(), rosterId: null, name: '', bonus: '' }]);
+    setShowAddForeign(false);
+  };
+
+  const updateForeign = (id, patch) =>
+    setForeignCrew((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+
+  const removeForeign = (id) => setForeignCrew((prev) => prev.filter((c) => c.id !== id));
+
+  const toggleSaveForeignRoster = (c) => {
+    if (c.rosterId) {
+      persistForeignRoster(foreignRoster.filter((r) => r.id !== c.rosterId));
+      updateForeign(c.id, { rosterId: null });
+    } else {
+      if (!c.name?.trim()) return;
+      const existing = foreignRoster.find((r) => r.name.toLowerCase() === c.name.trim().toLowerCase());
+      if (existing) {
+        updateForeign(c.id, { rosterId: existing.id });
+        return;
+      }
+      const newId = uid();
+      persistForeignRoster([...foreignRoster, {
+        id: newId, name: c.name.trim(), defaultBonus: c.bonus,
+      }]);
+      updateForeign(c.id, { rosterId: newId });
+    }
+  };
+
+  const removeFromForeignRoster = (rosterId) => {
+    persistForeignRoster(foreignRoster.filter((r) => r.id !== rosterId));
+    setForeignCrew((prev) => prev.map((c) => (c.rosterId === rosterId ? { ...c, rosterId: null } : c)));
+  };
+
   // ── Trip reset ───────────────────────────────────────────────────────
   const startNewTrip = () => {
-    if (!window.confirm('Start a new trip? This clears the current form. Your saved crew roster stays.')) return;
+    if (!window.confirm('Start a new trip? This clears the current form. Your saved crew rosters stay.')) return;
     setTripDate(todayISO()); setCrew([]); setQuota('10');
-    setFuel([]); setLabour([]); setLogistics(''); setForeignBonus(''); setBondItems([]);
+    setFuel([]); setLabour([]); setLogistics(''); setForeignCrew([]); setBondItems([]);
   };
 
   // ── Fuel/labour ──────────────────────────────────────────────────────
@@ -218,7 +267,7 @@ export default function App() {
     return <Preview
       vessel={vessel} tripDate={tripDate} crew={crew} totalShares={totalShares}
       quota={quota} fuel={fuel} labour={labour} logistics={logistics}
-      foreignBonus={foreignBonus} bondItems={bondItems}
+      foreignCrew={foreignCrew} bondItems={bondItems}
       onBack={() => setView('edit')}
     />;
   }
@@ -346,10 +395,33 @@ export default function App() {
           </button>
         </Section>
 
-        {/* Foreign bonus */}
-        <Section icon={Globe} title="Foreign Crew Bonus">
-          <textarea value={foreignBonus} onChange={(e) => setForeignBonus(e.target.value)} placeholder="Filipino / Latvian bonuses — names, amounts..." rows={3}
-            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }} />
+        {/* Foreign crew */}
+        <Section icon={Globe} title="Foreign Crew Bonus" count={foreignCrew.length === 0 ? null : `${foreignCrew.length} crew`}>
+          {foreignCrew.length === 0 && !showAddForeign && (
+            <div style={{ color: C.dim, fontSize: 13.5, padding: '4px 0 10px', fontStyle: 'italic' }}>No foreign crew added yet.</div>
+          )}
+          {foreignCrew.map((c) => (
+            <ForeignCrewRow key={c.id} c={c}
+              onUpdate={(p) => updateForeign(c.id, p)}
+              onRemove={() => removeForeign(c.id)}
+              onToggleSave={() => toggleSaveForeignRoster(c)} />
+          ))}
+          {showAddForeign ? (
+            <AddForeignMenu roster={foreignRoster}
+              existingRosterIds={foreignCrew.map((c) => c.rosterId).filter(Boolean)}
+              onPick={addForeignFromRoster} onNew={addNewForeign}
+              onRemoveFromRoster={removeFromForeignRoster}
+              onClose={() => setShowAddForeign(false)} />
+          ) : (
+            <button onClick={() => setShowAddForeign(true)} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              background: `${C.brass}1a`, border: `1px dashed ${C.brass}88`, color: C.brass,
+              borderRadius: 10, padding: '12px 16px', cursor: 'pointer',
+              fontSize: 14, fontWeight: 600, width: '100%', marginTop: foreignCrew.length ? 8 : 0,
+            }}>
+              <Plus size={16} /> Add foreign crewman
+            </button>
+          )}
         </Section>
 
         {/* Generate */}
@@ -364,7 +436,7 @@ export default function App() {
             <FileText size={18} /> Preview & Generate PDF
           </button>
           <p style={{ textAlign: 'center', color: C.dim, fontSize: 11.5, marginTop: 10, letterSpacing: 0.3 }}>
-            Form auto-saves · Roster persists across trips
+            Form auto-saves · Rosters persist across trips
           </p>
         </div>
       </div>

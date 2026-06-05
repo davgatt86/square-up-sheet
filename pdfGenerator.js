@@ -7,7 +7,7 @@ import { fmtDate, shareTextOf, fmtShares, fmtMoney, sumBondFor, todayISO } from 
  */
 export function generateSquareUpPDF({
   vessel, tripDate, crew, totalShares, quota,
-  fuel, labour, logistics, foreignBonus, bondItems,
+  fuel, labour, logistics, foreignCrew, bondItems,
 }) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -15,7 +15,6 @@ export function generateSquareUpPDF({
   const MARGIN = 40;
   const CONTENT_W = PAGE_W - 2 * MARGIN;
 
-  // Colours (sRGB)
   const INK = [10, 22, 34];
   const DIM = [90, 106, 122];
   const BRASS = [138, 90, 10];
@@ -36,7 +35,7 @@ export function generateSquareUpPDF({
     }
   };
 
-  // ── Header ──────────────────────────────────────────────────────────
+  // Header
   doc.setFont('times', 'bold');
   doc.setFontSize(26);
   setInk(INK);
@@ -58,7 +57,6 @@ export function generateSquareUpPDF({
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
   y += 22;
 
-  // ── Helpers ─────────────────────────────────────────────────────────
   const sectionTitle = (title) => {
     ensureSpace(28);
     doc.setFont('helvetica', 'bold');
@@ -86,7 +84,7 @@ export function generateSquareUpPDF({
     y += 18;
   };
 
-  // ── SHARES ──────────────────────────────────────────────────────────
+  // SHARES
   sectionTitle('SHARES');
   if (crew.length === 0) {
     emptyLine('No crew added.');
@@ -129,7 +127,7 @@ export function generateSquareUpPDF({
   }
   y += 8;
 
-  // ── BOND ────────────────────────────────────────────────────────────
+  // BOND
   sectionTitle('BOND');
   const crewBondTotals = crew
     .map((c) => ({ c, total: sumBondFor(bondItems, c.id) }))
@@ -183,7 +181,7 @@ export function generateSquareUpPDF({
   }
   y += 6;
 
-  // ── QUOTA ───────────────────────────────────────────────────────────
+  // QUOTA
   sectionTitle('QUOTA RECOVERY');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
@@ -191,7 +189,7 @@ export function generateSquareUpPDF({
   doc.text(`${quota}%`, MARGIN, y);
   y += 24;
 
-  // ── FUEL ────────────────────────────────────────────────────────────
+  // FUEL
   sectionTitle('FUEL');
   if (fuel.length === 0) {
     emptyLine('None.');
@@ -217,7 +215,7 @@ export function generateSquareUpPDF({
   }
   y += 6;
 
-  // ── LOGISTICS ───────────────────────────────────────────────────────
+  // LOGISTICS
   if (logistics?.trim()) {
     sectionTitle('LOGISTICS / TRANSPORT');
     doc.setFont('helvetica', 'normal');
@@ -232,7 +230,7 @@ export function generateSquareUpPDF({
     y += 10;
   }
 
-  // ── LABOUR ──────────────────────────────────────────────────────────
+  // LABOUR
   sectionTitle('LABOUR');
   if (labour.length === 0) {
     emptyLine('None.');
@@ -258,22 +256,26 @@ export function generateSquareUpPDF({
   }
   y += 6;
 
-  // ── FOREIGN BONUS ───────────────────────────────────────────────────
-  if (foreignBonus?.trim()) {
-    sectionTitle('FOREIGN CREW BONUS');
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10.5);
-    setInk(INK);
-    const lines = doc.splitTextToSize(foreignBonus, CONTENT_W);
-    for (const line of lines) {
-      ensureSpace(14);
-      doc.text(line, MARGIN, y);
-      y += 14;
+  // FOREIGN CREW BONUS
+  sectionTitle('FOREIGN CREW BONUS');
+  if (!foreignCrew || foreignCrew.length === 0) {
+    emptyLine('None.');
+  } else {
+    for (const c of foreignCrew) {
+      ensureSpace(18);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10.5);
+      setInk(INK);
+      doc.text(c.name || '—', MARGIN, y);
+      doc.text(c.bonus ? fmtMoney(c.bonus) : '—', PAGE_W - MARGIN, y, { align: 'right' });
+      y += 6;
+      hairLine();
+      y += 10;
     }
-    y += 8;
   }
+  y += 8;
 
-  // ── Footer (every page) ─────────────────────────────────────────────
+  // Footer (every page)
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
@@ -291,19 +293,12 @@ export function generateSquareUpPDF({
   return doc;
 }
 
-/**
- * Build a sensible filename for the trip.
- */
 export function makeFilename({ vessel, tripDate }) {
   const v = (vessel || 'squareup').replace(/[^a-zA-Z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
   const d = tripDate || todayISO();
   return `${v}_squareup_${d}.pdf`;
 }
 
-/**
- * Share or download a jsPDF document. Tries Web Share API (iOS Safari, Android)
- * first, falls back to triggering a download.
- */
 export async function shareOrDownloadPDF(doc, filename) {
   const blob = doc.output('blob');
   const file = new File([blob], filename, { type: 'application/pdf' });
@@ -313,8 +308,7 @@ export async function shareOrDownloadPDF(doc, filename) {
       await navigator.share({ files: [file], title: filename });
       return;
     } catch (err) {
-      if (err && err.name === 'AbortError') return; // user cancelled
-      // fall through to download
+      if (err && err.name === 'AbortError') return;
     }
   }
 

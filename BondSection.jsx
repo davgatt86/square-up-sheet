@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, Plus, Trash2, FileText, AlertCircle, Loader2 } from 'lucide-react';
+import { Upload, Plus, Trash2, FileText, AlertCircle, Loader2, Scissors } from 'lucide-react';
 import { C } from './constants.js';
 import { Section, IconBtn, inputStyle, selectStyle, MoneyInput, Label } from './ui.jsx';
 import { uid, fmtMoney, sumBondFor } from './helpers.js';
@@ -59,6 +59,28 @@ export default function BondSection({ crew, bondItems, setBondItems }) {
   const remove = (id) =>
     setBondItems((prev) => prev.filter((b) => b.id !== id));
 
+  // Split an invoice item: takes N off the item, creates a new sibling row with N qty
+  // remaining qty stays with the original (and keeps its assignedTo), new row starts unassigned.
+  const split = (id, n) => {
+    setBondItems((prev) => {
+      const idx = prev.findIndex((b) => b.id === id);
+      if (idx === -1) return prev;
+      const item = prev[idx];
+      if (n < 1 || n >= item.qty) return prev;
+      const remaining = item.qty - n;
+      const unitPrice = item.unitPrice || (item.qty > 0 ? item.amount / item.qty : 0);
+      // Round each to 2 dp; nudge the original to absorb any rounding difference so the sum stays identical.
+      const newAmount = Math.round(unitPrice * n * 100) / 100;
+      const remAmount = Math.round((item.amount - newAmount) * 100) / 100;
+      const updated = { ...item, qty: remaining, amount: remAmount };
+      const newItem = { ...item, id: uid(), qty: n, amount: newAmount, assignedTo: null };
+      const next = [...prev];
+      next[idx] = updated;
+      next.splice(idx + 1, 0, newItem);
+      return next;
+    });
+  };
+
   const clearAll = () => {
     if (!bondItems.length) return;
     if (window.confirm(`Remove all ${bondItems.length} bond items?`)) setBondItems([]);
@@ -115,14 +137,14 @@ export default function BondSection({ crew, bondItems, setBondItems }) {
 
       {bondItems.length === 0 && !parsing && !error && (
         <div style={{ color: C.dim, fontSize: 13, padding: '4px 0 8px', fontStyle: 'italic', lineHeight: 1.4 }}>
-          Upload a bond invoice (e.g. 60N Bond Ltd) to auto-import items, or add them manually. Each item is then assigned to a crewman or to the Stores bill.
+          Upload a bond invoice (e.g. 60N Bond Ltd) to auto-import items, or add them manually. Items with multiple units can be split — tap the scissors to break them up across crew.
         </div>
       )}
 
       {groupKeys.map((key) => (
         <BondGroup key={key} sourceLabel={key === '__manual__' ? 'Manual entries' : key}
           items={groups[key]} crew={crew}
-          onUpdate={update} onRemove={remove} />
+          onUpdate={update} onRemove={remove} onSplit={split} />
       ))}
 
       {bondItems.length > 0 && (
@@ -162,7 +184,7 @@ function Row({ label, value, italic, color }) {
   );
 }
 
-function BondGroup({ sourceLabel, items, crew, onUpdate, onRemove }) {
+function BondGroup({ sourceLabel, items, crew, onUpdate, onRemove, onSplit }) {
   return (
     <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 11, marginBottom: 10, overflow: 'hidden' }}>
       <div style={{ padding: '9px 12px', background: `${C.panel}cc`, borderBottom: `1px solid ${C.line}`, color: C.dim, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.4, display: 'flex', justifyContent: 'space-between' }}>
@@ -170,14 +192,30 @@ function BondGroup({ sourceLabel, items, crew, onUpdate, onRemove }) {
         <span style={{ color: C.sea, marginLeft: 8, flexShrink: 0 }}>{items.length} item{items.length === 1 ? '' : 's'}</span>
       </div>
       <div style={{ padding: 9, display: 'flex', flexDirection: 'column', gap: 7 }}>
-        {items.map((b) => <BondItem key={b.id} item={b} crew={crew} onUpdate={onUpdate} onRemove={onRemove} />)}
+        {items.map((b) => <BondItem key={b.id} item={b} crew={crew} onUpdate={onUpdate} onRemove={onRemove} onSplit={onSplit} />)}
       </div>
     </div>
   );
 }
 
-function BondItem({ item, crew, onUpdate, onRemove }) {
+function BondItem({ item, crew, onUpdate, onRemove, onSplit }) {
   const isManual = !item.source;
+  const canSplit = !isManual && item.qty > 1;
+  const [splitting, setSplitting] = useState(false);
+  const [splitQty, setSplitQty] = useState('');
+
+  const doSplit = () => {
+    const n = parseInt(splitQty, 10);
+    if (isNaN(n) || n < 1 || n >= item.qty) {
+      setSplitting(false);
+      setSplitQty('');
+      return;
+    }
+    onSplit(item.id, n);
+    setSplitting(false);
+    setSplitQty('');
+  };
+
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 9, padding: 10 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
@@ -202,6 +240,37 @@ function BondItem({ item, crew, onUpdate, onRemove }) {
           )}
         </div>
       </div>
+
+      {canSplit && !splitting && (
+        <button onClick={() => setSplitting(true)} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          background: 'transparent', border: `1px solid ${C.sea}66`, color: C.sea,
+          borderRadius: 7, padding: '5px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+          marginBottom: 8,
+        }}>
+          <Scissors size={12} /> Split off some
+        </button>
+      )}
+
+      {splitting && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, padding: 8, background: `${C.sea}14`, border: `1px solid ${C.sea}55`, borderRadius: 8 }}>
+          <span style={{ fontSize: 12.5, color: C.dim, whiteSpace: 'nowrap' }}>Split off</span>
+          <input value={splitQty} onChange={(e) => setSplitQty(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') doSplit(); }}
+            type="number" min="1" max={item.qty - 1} placeholder={`1–${item.qty - 1}`} autoFocus
+            style={{ ...inputStyle, width: 70, padding: '6px 8px', textAlign: 'center' }} />
+          <span style={{ fontSize: 12.5, color: C.dim, whiteSpace: 'nowrap' }}>of {item.qty}</span>
+          <div style={{ flex: 1 }} />
+          <button onClick={doSplit} style={{
+            background: C.sea, color: C.bg, border: 'none', borderRadius: 7,
+            padding: '6px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700,
+          }}>Split</button>
+          <button onClick={() => { setSplitting(false); setSplitQty(''); }} style={{
+            background: 'transparent', color: C.dim, border: 'none',
+            padding: '6px 8px', cursor: 'pointer', fontSize: 12.5,
+          }}>Cancel</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
         <select
           value={item.assignedTo || ''}

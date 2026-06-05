@@ -8,7 +8,7 @@ import { IconBtn } from './ui.jsx';
 export default function Preview(props) {
   const {
     vessel, tripDate, crew, totalShares, quota,
-    fuel, labour, logistics, foreignBonus, bondItems, onBack,
+    fuel, labour, logistics, foreignCrew, bondItems, onBack,
   } = props;
 
   const [busy, setBusy] = useState(false);
@@ -38,7 +38,10 @@ export default function Preview(props) {
   const handlePrint = () => window.print();
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bgDeep, padding: '16px 12px 80px' }}>
+    <div style={{
+      minHeight: '100vh', background: C.bgDeep,
+      padding: 'max(16px, env(safe-area-inset-top)) 12px calc(90px + env(safe-area-inset-bottom)) 12px',
+    }}>
       <style>{`
         @page { size: A4; margin: 14mm; }
         @media print {
@@ -49,19 +52,9 @@ export default function Preview(props) {
             max-width: none !important; width: 100% !important; border-radius: 0 !important;
           }
         }
+        @keyframes squareup-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        .spin { animation: squareup-spin 0.9s linear infinite; }
       `}</style>
-
-      <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', maxWidth: 720, margin: '0 auto 14px', flexWrap: 'wrap' }}>
-        <IconBtn onClick={onBack} color={C.sea} icon={ChevronLeft} title="Back to edit" size={16} />
-        <div style={{ flex: 1, color: C.dim, fontSize: 13, minWidth: 100 }}>Preview</div>
-        <button onClick={handlePrint} style={btnSecondary}>
-          <Printer size={15} /> Print
-        </button>
-        <button onClick={handleShare} disabled={busy} style={btnPrimary}>
-          {busy ? <Loader2 size={15} className="spin" /> : <Share2 size={15} />}
-          {busy ? 'Generating…' : 'Share PDF'}
-        </button>
-      </div>
 
       <div className="preview-page" style={{
         background: 'white', color: '#0a1622',
@@ -158,17 +151,41 @@ export default function Preview(props) {
           )}
         </DocSection>
 
-        {/* Foreign bonus */}
-        {foreignBonus?.trim() && (
-          <DocSection title="Foreign Crew Bonus">
-            <div style={{ fontSize: 13.5, color: '#1a2a3c', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{foreignBonus}</div>
-          </DocSection>
-        )}
+        {/* Foreign crew bonus */}
+        <DocSection title="Foreign Crew Bonus">
+          {foreignCrew.length === 0 ? <DocEmpty>None.</DocEmpty> : (
+            foreignCrew.map((c) => (
+              <DocLine key={c.id} left={c.name || '—'} right={c.bonus ? fmtMoney(c.bonus) : '—'} />
+            ))
+          )}
+        </DocSection>
 
         <div style={{ marginTop: 32, paddingTop: 12, borderTop: '1px solid #d6dde4', display: 'flex', justifyContent: 'space-between', color: '#8a98a8', fontSize: 10.5, letterSpacing: 0.4, textTransform: 'uppercase', fontWeight: 600 }}>
           <span>Generated {fmtDate(todayISO())}</span>
           <span>{(vessel || '').toUpperCase()}</span>
         </div>
+      </div>
+
+      {/* Bottom fixed action bar */}
+      <div className="no-print" style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0,
+        background: `${C.bgDeep}f2`,
+        backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+        borderTop: `1px solid ${C.line}`,
+        padding: '12px 14px',
+        paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+        display: 'flex', gap: 10, alignItems: 'center',
+        zIndex: 100, boxShadow: '0 -8px 24px rgba(0,0,0,0.5)',
+      }}>
+        <IconBtn onClick={onBack} icon={ChevronLeft} color={C.sea} title="Back to edit" size={16} />
+        <div style={{ flex: 1 }} />
+        <button onClick={handlePrint} style={btnSecondary}>
+          <Printer size={15} /> Print
+        </button>
+        <button onClick={handleShare} disabled={busy} style={btnPrimary}>
+          {busy ? <Loader2 size={15} className="spin" /> : <Share2 size={15} />}
+          {busy ? 'Generating…' : 'Share PDF'}
+        </button>
       </div>
     </div>
   );
@@ -182,14 +199,14 @@ const docRow = {
 const btnPrimary = {
   display: 'inline-flex', alignItems: 'center', gap: 7,
   background: `linear-gradient(180deg, ${C.brass}, ${C.brassDk})`, color: C.bg,
-  border: 'none', borderRadius: 9, padding: '10px 16px', cursor: 'pointer',
-  fontSize: 14, fontWeight: 700, boxShadow: `0 4px 12px ${C.brass}44`,
+  border: 'none', borderRadius: 10, padding: '11px 18px', cursor: 'pointer',
+  fontSize: 14.5, fontWeight: 700, boxShadow: `0 4px 12px ${C.brass}44`,
 };
 
 const btnSecondary = {
   display: 'inline-flex', alignItems: 'center', gap: 7,
   background: 'transparent', color: C.sea,
-  border: `1px solid ${C.sea}88`, borderRadius: 9, padding: '9px 14px', cursor: 'pointer',
+  border: `1px solid ${C.sea}88`, borderRadius: 10, padding: '10px 14px', cursor: 'pointer',
   fontSize: 14, fontWeight: 600,
 };
 
